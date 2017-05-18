@@ -1,0 +1,101 @@
+#!/bin/bash
+
+echo "updaing your system..."
+sudo apt-get update
+#check for nginx installationn
+echo "checking available installations for nginx"
+checkNginx=`dpkg --get-selections | grep nginx|wc -l`
+if  [ $checkNginx -eq 0 ]
+then
+echo "Nginx not present..proceeding for installation.."
+sudo apt-get install nginx -y
+sudo ufw allow 'Nginx HTTP'
+else
+echo "Nginx already Present..Proceeding to next step.."
+fi
+echo "checking Packages for mySql"
+
+#mySQL installations
+checkMySql=`dpkg --get-selections | grep mysql |wc -l`
+if [ $checkMySql -eq 0 ]
+then
+echo "installing mySQL package.. please be patient"
+echo "The installation will ask for details."
+sleep 10
+echo "intstalling server..."
+sudo apt-get install mysql-server -y
+echo "installing DB..."
+sudo mysql_install_db
+sudo mysql_secure_installation
+else
+echo "package mySQL found.. Proceeding to Next step"
+fi
+
+
+#php installations.
+checkPHP=`dpkg --get-selections | grep -i php|wc -l`
+if [ $checkPHP -eq 0 ]
+then
+echo "PHP not installed...Proceeding for installations.."
+sudo apt-get install php5-fpm php5-mysql -y
+else
+echo "PHP present..Proceeding to Next Step"
+fi
+
+
+#take Domain name
+
+echo "please enter your domain name:[format:example.com]:-"
+counterCheck=true
+while $counterCheck
+do
+read domainName
+if echo "${domainName}" |grep '^[a-zA-Z0-9]*\.com' > /dev/null;then
+echo "valid Domain Name..proceeding to Next step"
+counterCheck=false
+break
+else
+echo "invalid Domain Name..please follow the naming convention [example.com]..."
+echo "Please Enter Domain Name"
+counterCheck=true
+fi
+done
+echo "checking your ip.."
+ip=`grep -i 127 /etc/hosts| awk '{ print $1; }' `
+sudo sed -e "/$ip/s/^/#/g" -i /etc/hosts
+hostEntry="$ip $domainName"
+echo "adding entry to /etc/hosts"
+echo "$hostEntry" | sudo tee -a /etc/hosts > /dev/null
+
+
+echo "creating your conf file for the new Domain..."
+#sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/$domainName
+sudo cp /etc/nginx/sites-available/default /etc/nginx/conf.d/example.com.conf
+
+echo "Downloading WordPress..."
+sudo wget http://wordpress.org/latest.tar.gz
+echo "untar File starting..."
+sudo tar xzvf latest.tar.gz
+echo "Installing additional libraries..."
+sudo apt-get install php5-gd libssh2-php
+
+echo "extracting documentRoot for your domain and moving files"
+dr=`sudo grep -i root /etc/nginx/sites-available/$domainName|head -1|awk '{print $2}'|awk 'BEGIN {FS=";"}{print $1}'`
+sudo mv wordpress $dr
+sudo chown -R 755 $dr
+
+sudo cp $dr/wordpress/wp-config-sample.php $dr/wordpress/wp-config.php
+echo "getting Keys..."
+curl -s https://api.wordpress.org/secret-key/1.1/salt/ >>keys.txt
+echo "your key Values are placed in keys.txt in your current Directory.."
+echo "please replace it with the values in the file $dr/wordpress/wp-config.php"
+
+echo "you will be now logged in to the sql server..please enter the password which was used earlier while installation"
+echo "once inside the sql Prompt please use the below commands sequentially...Press ENTER after each command"
+echo "CREATE DATABASE wp_db;"
+echo "GRANT ALL ON wp_db.* to 'wp_user'@'localhost' IDENTIFIED BY '_secret_password_';"
+echo "FLUSH PRIVILEGES;"
+echo "quit"
+sudo mysql -u root -p
+sudo service nginx restart
+echo "please proceed to check your domain"
